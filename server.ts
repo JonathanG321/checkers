@@ -10,9 +10,9 @@ const port = 3000;
 const app = next({ dev, hostname, port });
 const handler = app.getRequestHandler();
 
-type Room = { name: string; players: string[] };
+type Room = { players: string[] };
 
-const rooms: Room[] = [];
+const rooms: Record<string, Room> = {};
 
 app.prepare().then(() => {
   const httpServer = createServer(handler);
@@ -20,38 +20,53 @@ app.prepare().then(() => {
   const io = new Server(httpServer);
 
   io.on('connection', (socket) => {
-    socket.on('updateLastId', (id: string) => {
-      const room = rooms.find((room) => room.players.includes(id));
-      if (room) {
-        io.to(room.name).emit('newLastId', id);
-      }
-    });
-
-    const roomToJoin = rooms.find((room) => room.players.length < 2);
-    if (roomToJoin) {
-      rooms.forEach((room) => {
-        if (room.name === roomToJoin.name) {
-          room.players.push(socket.id);
-        }
-      });
-      socket.join(roomToJoin.name);
-      io.to(roomToJoin.name).emit('updateRoomOccupants', roomToJoin.players);
-      io.to(roomToJoin.name).emit('updateRoomName', roomToJoin.name);
-    } else {
-      const roomName = faker.word.words({ count: 5 }).split(' ').join('');
-      rooms.push({ name: roomName, players: [socket.id] });
+    function joinRoom(roomName: string, occupants: string[]) {
       socket.join(roomName);
-      io.to(roomName).emit('updateRoomOccupants', [socket.id]);
+      io.to(roomName).emit('updateRoomOccupants', occupants);
       io.to(roomName).emit('updateRoomName', roomName);
     }
 
-    socket.on('disconnect', (reason) => {
-      rooms.forEach((room) => {
-        if (room.players.includes(socket.id)) {
-          socket.leave(room.name);
-          room.players = room.players.filter((player) => player !== socket.id);
-        }
-      });
+    function addPlayerToRoom() {
+      const roomToJoin = findRoomToJoin();
+
+      if (roomToJoin) {
+        const [roomName, room] = roomToJoin;
+        rooms[roomName].players.push(socket.id);
+        joinRoom(roomName, room.players);
+      } else {
+        const roomName = faker.word.words({ count: 5 }).split(' ').join('');
+        rooms[roomName] = { players: [socket.id] };
+        joinRoom(roomName, [socket.id]);
+      }
+    }
+
+    function removePlayerFromRoom() {
+      const playersCurrentRoom = findPlayersCurrentRoom(socket.id);
+      if (playersCurrentRoom) {
+        const [roomName, room] = playersCurrentRoom;
+        socket.leave(roomName);
+        room.players = room.players.filter((player) => player !== socket.id);
+        io.to(roomName).emit('updateRoomOccupants', room.players);
+      }
+    }
+
+    socket.on('joinRoom', (id: string) => {
+      const playersCurrentRoom = findPlayersCurrentRoom(id);
+      if (!!playersCurrentRoom) {
+        return;
+      }
+      addPlayerToRoom();
+    });
+
+    socket.on('updateLastId', (id: string) => {
+      const playersCurrentRoom = findPlayersCurrentRoom(id);
+      if (playersCurrentRoom) {
+        io.to(playersCurrentRoom[0]).emit('newLastId', id);
+      }
+    });
+
+    socket.on('disconnecting', (reason) => {
+      removePlayerFromRoom();
     });
   });
 
@@ -64,3 +79,11 @@ app.prepare().then(() => {
       console.log(`> Ready on http://${hostname}:${port}`);
     });
 });
+
+function findPlayersCurrentRoom(id: string) {
+  return Object.entries(rooms).find(([_, room]) => room.players.includes(id));
+}
+
+function findRoomToJoin() {
+  return Object.entries(rooms).find(([_, room]) => room.players.length < 2);
+}
