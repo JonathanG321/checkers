@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { socket } from '../socket';
+import { CheckerBoard as CheckerBoardType, Player, Players } from '@/types';
+import { defaultBoard } from '@/constants';
+import CheckerBoard from './components/CheckerBoard';
 
 export default function Home() {
-  const [lastId, setLastId] = useState('');
+  const [lastId, setLastId] = useState<string | undefined>(undefined);
   const [room, setRoom] = useState<undefined | string>(undefined);
-  const [occupants, setOccupants] = useState<string[]>([]);
+  const [occupants, setOccupants] = useState<Players>([undefined, undefined]);
+  const [board, setBoard] = useState<CheckerBoardType>(defaultBoard);
+
+  const currentPlayer = occupants.find((player) => player && player.id === socket.id);
 
   function onClick() {
     socket.emit('updateLastId', socket.id);
@@ -17,10 +23,10 @@ export default function Home() {
   }
 
   useEffect(() => {
-    function onNewLastId(id: string) {
+    function onNewLastId(id: string | undefined) {
       setLastId(id);
     }
-    function onUpdateRoomOccupants(newOccupants: string[]) {
+    function onUpdateRoomOccupants(newOccupants: Players) {
       setOccupants(newOccupants);
     }
     function onUpdateRoomName(name: string) {
@@ -46,9 +52,11 @@ export default function Home() {
             <p>Last Id: {lastId}</p>
             <div className="flex flex-col border border-white p-2">
               <h2 className="text-xl font-bold">Occupants</h2>
-              {occupants.map((occupant) => (
-                <div key={occupant}>{occupant}</div>
-              ))}
+              {occupants
+                .filter((occupant): occupant is Player => !!occupant)
+                .map((occupant) => (
+                  <div key={occupant.id}>{occupant.id}</div>
+                ))}
             </div>
           </div>
           <button
@@ -58,6 +66,7 @@ export default function Home() {
           >
             Update Last ID
           </button>
+          {currentPlayer && <CheckerBoard board={board} player={currentPlayer} />}
         </div>
       )}
     </div>
