@@ -28,4 +28,8 @@ export type Player = { id: string; color: Color };
 
 export type Players = [Player | undefined, Player | undefined];
 
-export type GameRoom = { players: Players; board: CheckerBoard };
+export type SpaceNumber = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+export type Coordinate = [SpaceNumber, SpaceNumber];
+
+export type GameRoom = { players: Players; board: CheckerBoard; currentTurn: Color };

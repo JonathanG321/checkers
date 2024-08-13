@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import next from 'next';
 import { Server } from 'socket.io';
 import { faker } from '@faker-js/faker';
-import { Color, GameRoom, Player, Players } from '@/types';
+import { CheckerBoard, Color, GameRoom, Player, Players } from '@/types';
 import { defaultBoard } from '@/constants';
 import { ClientToServerEvents, InterServerEvents, ServerToClientEvents } from './socketTypes';
 
@@ -25,19 +25,20 @@ app.prepare().then(() => {
       socket.join(roomName);
       io.to(roomName).emit('updateRoomOccupants', occupants);
       io.to(roomName).emit('updateRoomName', roomName);
+      io.to(roomName).emit('updateRoomBoard', defaultBoard);
     }
 
-    function addPlayerToRoom() {
-      const roomToJoin = findRoomToJoin(rooms);
+    function addPlayerToRoom(id: string) {
+      const roomToJoinName = findRoomToJoin(rooms);
 
-      if (roomToJoin) {
-        const [roomName, room] = roomToJoin;
-        rooms[roomName].players.push(createPlayer(socket.id, getNewColorForRoom(room)));
-        joinRoom(roomName, room.players);
+      if (roomToJoinName) {
+        const emptyPlayerIndex = rooms[roomToJoinName].players.findIndex((player) => player === undefined);
+        rooms[roomToJoinName].players[emptyPlayerIndex] = createPlayer(id, getNewColorForRoom(rooms[roomToJoinName]));
+        joinRoom(roomToJoinName, rooms[roomToJoinName].players);
       } else {
-        const players: Players = [createPlayer(socket.id, 'R'), undefined];
+        const players: Players = [createPlayer(id, 'R'), undefined];
         const roomName = faker.word.words({ count: 5 }).split(' ').join('');
-        rooms[roomName] = { players: players, board: defaultBoard };
+        rooms[roomName] = { players: players, board: defaultBoard, currentTurn: 'R' };
         joinRoom(roomName, players);
       }
     }
@@ -47,23 +48,32 @@ app.prepare().then(() => {
       if (playersCurrentRoom) {
         const [roomName, room] = playersCurrentRoom;
         socket.leave(roomName);
-        room.players = room.players.map((player) => (player?.id !== socket.id ? undefined : player)) as Players;
+        rooms[roomName].players = room.players.map((player) =>
+          player?.id !== socket.id ? undefined : player
+        ) as Players;
         io.to(roomName).emit('updateRoomOccupants', room.players);
       }
     }
 
-    socket.on('joinRoom', (id: string | undefined) => {
-      const playersCurrentRoom = findPlayersCurrentRoom(id);
-      if (!!playersCurrentRoom) {
-        return;
+    socket.on('joinRoom', () => {
+      const playersCurrentRoom = findPlayersCurrentRoom(socket.id);
+      if (!playersCurrentRoom && !!socket.id) {
+        addPlayerToRoom(socket.id);
       }
-      addPlayerToRoom();
     });
 
-    socket.on('updateLastId', (id: string | undefined) => {
-      const playersCurrentRoom = findPlayersCurrentRoom(id);
+    socket.on('updateLastId', () => {
+      const playersCurrentRoom = findPlayersCurrentRoom(socket.id);
       if (!!playersCurrentRoom) {
-        io.to(playersCurrentRoom[0]).emit('newLastId', id);
+        io.to(playersCurrentRoom[0]).emit('newLastId', socket.id);
+      }
+    });
+
+    socket.on('updateBoard', (newBoard) => {
+      const playersCurrentRoom = findPlayersCurrentRoom(socket.id);
+      if (!!playersCurrentRoom) {
+        rooms[playersCurrentRoom[0]].board = newBoard;
+        io.to(playersCurrentRoom[0]).emit('updateRoomBoard', newBoard);
       }
     });
 
@@ -87,7 +97,7 @@ function findPlayersCurrentRoom(id: string | undefined) {
 }
 
 function findRoomToJoin(rooms: Record<string, GameRoom>) {
-  return Object.entries(rooms).find(([_, room]) => room.players.some((player) => player === undefined));
+  return Object.entries(rooms).find(([_, room]) => room.players.some((player) => player === undefined))?.[0];
 }
 
 function createPlayer(id: string, color: Color): Player {

@@ -8,47 +8,50 @@ import CheckerBoard from './components/CheckerBoard';
 
 export default function Home() {
   const [lastId, setLastId] = useState<string | undefined>(undefined);
-  const [room, setRoom] = useState<undefined | string>(undefined);
+  const [roomName, setRoomName] = useState<undefined | string>(undefined);
   const [occupants, setOccupants] = useState<Players>([undefined, undefined]);
-  const [board, setBoard] = useState<CheckerBoardType>(defaultBoard);
-
   const currentPlayer = occupants.find((player) => player && player.id === socket.id);
+  const [board, setBoard] = useState<CheckerBoardType>(processBoard(defaultBoard, currentPlayer));
 
   function onClick() {
-    socket.emit('updateLastId', socket.id);
+    socket.emit('updateLastId');
   }
 
   function joinRoom() {
-    socket.emit('joinRoom', socket.id);
+    socket.emit('joinRoom');
   }
 
   useEffect(() => {
-    function onNewLastId(id: string | undefined) {
+    function onNewLastId(id: string) {
       setLastId(id);
     }
     function onUpdateRoomOccupants(newOccupants: Players) {
       setOccupants(newOccupants);
     }
     function onUpdateRoomName(name: string) {
-      setRoom(name);
+      setRoomName(name);
+    }
+    function onUpdateRoomBoard(board: CheckerBoardType) {
+      setBoard(processBoard(board, currentPlayer));
     }
 
     socket.on('newLastId', onNewLastId);
     socket.on('updateRoomOccupants', onUpdateRoomOccupants);
     socket.on('updateRoomName', onUpdateRoomName);
-  }, []);
+    socket.on('updateRoomBoard', onUpdateRoomBoard);
+  }, [currentPlayer]);
 
   return (
     <div className="m-10 flex justify-center items-center">
-      {!room && (
+      {!roomName && (
         <button onClick={joinRoom} className="p-2 border-1 bg-gray-800 text-white rounded">
           Join Room
         </button>
       )}
-      {!!room && (
+      {!!roomName && (
         <div className="flex flex-col gap-2">
           <div className="flex flex-col">
-            <h1 className="text-2xl font-bold">{room}</h1>
+            <h1 className="text-2xl font-bold">{roomName}</h1>
             <p>Last Id: {lastId}</p>
             <div className="flex flex-col border border-white p-2">
               <h2 className="text-xl font-bold">Occupants</h2>
@@ -66,9 +69,19 @@ export default function Home() {
           >
             Update Last ID
           </button>
-          {currentPlayer && <CheckerBoard board={board} player={currentPlayer} />}
+          {currentPlayer && (
+            <CheckerBoard board={board} player={currentPlayer} isYourTurn={true /* TODO: handle this properly */} />
+          )}
         </div>
       )}
     </div>
   );
+}
+
+function processBoard(board: CheckerBoardType, currentPlayer: Player | undefined) {
+  if (currentPlayer?.color === 'R' || !currentPlayer) {
+    return board;
+  }
+  const reverseBoard = board.map((row) => row.reverse()).reverse() as CheckerBoardType;
+  return reverseBoard;
 }
